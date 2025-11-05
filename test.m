@@ -1,92 +1,185 @@
-clc; clear; close all;
 
-%% Parameters
-fc = 1e9;               % Carrier frequency (1 GHz)
-c = 3e8;                 % Speed of light (m/s)
-R = 100;                   % Target range (1000 m)
-v = 0;                   % Target velocity (0 m/s)
-lambda = c/fc;           % Wavelength
-fs = 2*fc;              % Sampling frequency (must be at least Nyquist
-                      % for the phased package to handle the signal
-                      % properly.
-sim_time = 1e-6;               % Simulation time
-% i don't care what happens before the wave reflects so 
-t = 0:1/fs:sim_time;            % Time vector
-txPower = 10;            % Transmitted power (Watts)
-noiseFigure = 20;        % Receiver noise figure (dB)
-k = 2*pi/lambda;         % wavenumber
-j = sqrt(-1);            % i or j
-L1 = 1;                  % length of the center of the rotor
-L2 = 10;                  % length of the blade + L1
-rps = 20;                % rotation in rad per sec.
 
-N_scat = 2; % N_scat scatters on each side of the origin.
-tx_pos = [0; 0; 0];        % Transmitter at origin
-tx_vel = [0; 0; 0];        % Transmitter stationary
-target_vel = zeros(3,2*N_scat);
+close all;
 
-R_vec = [R;0;0];
-x1 = (N_scat:-1:1);
-x2 = (1:N_scat);
-m = (L2-L1)/(N_scat-1);
-b = (L1*N_scat-L2)/(N_scat-1);  
-y1 = (-1:1/N_scat:-L1/L2);
-y2 = (L1/L2:1/N_scat:1);
 
-rcs = zeros(1, N_scat * 2);
-rcs(1, :) = 0.001;
-% antenna is isotropic so angle doesn't matter. this is only used
-% to indicate the number of reflectors.
-scat_ang = zeros(1, N_scat * 2);
-
-%% Create Transmitter
-tx = phased.Transmitter('PeakPower', txPower, 'Gain', 40);
-
-%% Create Antenna, Radiator and collector
-ant = phased.IsotropicAntennaElement('BackBaffled',true);
-txant = phased.Radiator('Sensor',ant,'PropagationSpeed',c,'OperatingFrequency',fc);
-rxant = phased.Collector('Sensor',ant,'PropagationSpeed',c,'OperatingFrequency',fc);
-
-%% Create Target Model
-target = phased.RadarTarget('MeanRCS', rcs, 'OperatingFrequency', fc, 'Model','Nonfluctuating');
-
-%% Create Free Space Channel (Handles Delay and Doppler)
-channel = phased.FreeSpace(...
-    'SampleRate', fs, ...
-    'TwoWayPropagation', true, ...
-    'OperatingFrequency', fc);
-
-%% Create Receiver
-rx = phased.ReceiverPreamp('Gain', 40, 'NoiseFigure', noiseFigure);
-
-%% Generate CW Signal
-cw_waveform = exp(j*2*pi*fc*t).'; % Column vector signal
-
-blade_dir = [1;0;0];
-target_pos = [R_vec-blade_dir*(m*x1+b) R_vec+blade_dir*(m*x2+b)];
-rx_signal = zeros(size(cw_waveform)); 
-
-tic
-for i = 1:length(cw_waveform)
-    tx_signal = tx(cw_waveform(i)); 
-    tx_signal = txant(tx_signal, scat_ang);
-    prop_signal = channel(tx_signal, tx_pos, target_pos, tx_vel, target_vel);
-    refl_sig = target(prop_signal);
-    rx_signal(i) = rxant(refl_sig, scat_ang);
-end
-toc
-
-% Receive the Signal
-rx_signal = rx(rx_signal);
-
-%% Plot Results
 figure;
+plot((1:length(cw_waveform)), cw_waveform);
+title('CW 5G OFDM Transmit Signal Pulse')
+xlabel('Discrete-time Sample Number'); ylabel('Amplitude')
 
-plot(t*1e6, real(rx_signal));
-title('Received CW Signal - Exprimental:Blue, Theoretical:Red');
-xlabel('Time (\mus)'); ylabel('Amplitude');
-hold on
-xline(2*(R)/c * 1e6);
-hold off
+num_steps = N - length(t_symbol);
+mf  = phased.MatchedFilter('Coefficients',mfcoeff);
+ymf = mf(y_theo);
+y = sum(abs(ymf),2);
+r = c/(2*BW);
+ax = (0:num_steps)*r;
+y_ss = (y((length(y)-num_steps):length(y)));
+th = num_steps*r+r/2;
+a = r/2:r:th;
 
+figure('Renderer', 'painters', 'Position', [10 10 900 600])
+subplot(3,1,1)
+plot(ax, y_ss);
+grid on
+xticks(a);
+title('MM Model Range Bin Correlation with Transmit Signal')
+xlabel('Range (m)'); ylabel('Correlation')
+
+subplot(3,1,2)
+ymf = mf(y_theo_ps);
+y = sum(abs(ymf),2);
+y_ss = y((length(y)-num_steps):length(y));
+plot(ax, y_ss);
+grid on
+xticks(a);
+title('PS Model Range Bin Correlation with Transmit Signal')
+xlabel('Range (m)'); ylabel('Correlation')
+
+subplot(3,1,3)
+ymf = mf(y_exp);
+y = sum(abs(ymf),2);
+y_ss = y((length(y)-num_steps):length(y));
+plot(ax, y_ss);
+grid on
+xticks(a);
+title('Exp Model Range Bin Correlation with Transmit Signal')
+xlabel('Range (m)'); ylabel('Correlation')
+
+
+%}
+
+idx = 6;
+
+%figure('Renderer', 'painters', 'Position', [10 10 900 600])
+figure('Renderer', 'painters', 'Position', [10 10 1000 900])
+
+subplot(3,3,1);
+plot(1:length(y_theo(:,idx)), y_theo(:,idx-1));
+title('MM model \textbf{r}$_x[:,1]$', Interpreter='latex')
+subplot(3,3,2);
+plot(1:length(y_theo(:,idx)), y_theo(:,idx));
+title('MM model \textbf{r}$_x[:,2]$', Interpreter='latex')
+subplot(3,3,3);
+plot(1:length(y_theo(:,idx)), y_theo(:,idx+1));
+title('MM model \textbf{r}$_x[:,3]$', Interpreter='latex')
+
+subplot(3,3,4);
+plot(1:length(y_theo(:,idx)), y_theo_ps(:,idx-1));
+title('PS model \textbf{r}$_x[:,1]$', Interpreter='latex')
+subplot(3,3,5);
+plot(1:length(y_theo(:,idx)), y_theo_ps(:,idx));
+title('PS model \textbf{r}$_x[:,2]$', Interpreter='latex')
+subplot(3,3,6);
+plot(1:length(y_theo(:,idx)), y_theo_ps(:,idx+1));
+title('PS model \textbf{r}$_x[:,3]$', Interpreter='latex')
+
+subplot(3,3,7);
+plot(1:length(y_exp(:,idx)), y_exp(:,idx-1));
+title('Exp model \textbf{r}$_x[:,1]$', Interpreter='latex')
+xlabel('Discrete-time Sample Number');
+subplot(3,3,8);
+plot(1:length(y_exp(:,idx)), y_exp(:,idx));
+title('Exp model \textbf{r}$_x[:,2]$', Interpreter='latex')
+xlabel('Discrete-time Sample Number');
+subplot(3,3,9);
+plot(1:length(y_exp(:,idx)), y_exp(:,idx+1));
+title('Exp model \textbf{r}$_x[:,3]$', Interpreter='latex')
+xlabel('Discrete-time Sample Number');
+
+%}
+%{
+mf  = phased.MatchedFilter('Coefficients',mfcoeff);
+ymf = mf(y_theo);
+y = sum(abs(ymf),2);
+[~,ridx] = max(sum(abs(ymf),2)); % detection via peak finding along range
+%}
+
+%{
+figure('Renderer', 'painters', 'Position', [10 10 900 600])
+plot(1:length(y_theo(ridx,:)), y_theo(ridx,:)/abs(max(y_theo(ridx,:))));
+xlabel('Discrete Sample Number'); ylabel('Normalized Magnitude');
+title('Theoretical MM Time-Domain Radar Signal');
+%}
+%{
+figure('Renderer', 'painters', 'Position', [10 10 900 600])
+plotResponse(rdresp,y_theo,mfcoeff);
+%}
+%{
+figure;
+mf  = phased.MatchedFilter('Coefficients',mfcoeff);
+ymf = mf(y_theo);
+[~,ridx] = max(sum(abs(ymf),2)); % detection via peak finding along range
+pspectrum(y_theo(ridx-1,:),PRF,'spectrogram')
+%}
+
+%{
+M = 80;
+L = 16;
+lk = 0.7;
+x = abs(fftshift(fft(ymf(ridx-1,1:M), 80)));
+
+figure('Renderer', 'painters', 'Position', [10 10 900 600])
+plot(1:length(x), x);
+%}
+
+
+figure('Renderer', 'painters', 'Position', [10 10 900 600])
+subplot(1,3,1)
+mf  = phased.MatchedFilter('Coefficients',mfcoeff);
+ymf = mf(y_theo);
+[~,ridx] = max(sum(abs(ymf),2)); % detection via peak finding along range
+pspectrum(ymf(ridx,:),PRF,'spectrogram');
+
+subplot(1,3,2)
+mf  = phased.MatchedFilter('Coefficients',mfcoeff);
+ymf = mf(y_theo_ps);
+[~,ridx] = max(sum(abs(ymf),2)); % detection via peak finding along range
+pspectrum(ymf(ridx,:),PRF,'spectrogram');
+
+subplot(1,3,3)
+mf  = phased.MatchedFilter('Coefficients',mfcoeff);
+ymf = mf(y_exp);
+[~,ridx] = max(sum(abs(ymf),2)); % detection via peak finding along range
+pspectrum(ymf(ridx,:),PRF,'spectrogram');
+
+rdresp  = phased.RangeDopplerResponse('PropagationSpeed',c,'SampleRate',fs,...
+    'DopplerFFTLengthSource','Property','DopplerFFTLength',128,'DopplerOutput','Speed',...
+    'OperatingFrequency',fc);
+mf = cw_waveform(length(t_symbol):-1:1);
+mfcoeff = conj(mf);
+
+figure('Renderer', 'painters', 'Position', [10 10 900 600])
+subplot(1,3,1)
+plotResponse(rdresp,y_theo,mfcoeff);
+%colorbar('Ticks',[-150, -30]);
+
+subplot(1,3,2)
+plotResponse(rdresp,y_theo_ps,mfcoeff);
+
+subplot(1,3,3)
+plotResponse(rdresp,y_exp,mfcoeff);
+%{
+, ...
+    TimeResolution=M/PRF,OverlapPercent=L/M*100, ...
+    Leakage=lk)
+%}
+
+%}
+figure;
+plot(1:16, mfcoeff);
+
+figure; 
+temp = abs(y_mf_mm(:,2));
+plot(1:30, temp(1:30));
+
+mf  = phased.MatchedFilter('Coefficients',mfcoeff);
+ymf = mf(y_theo(:,2));
+figure;
+plot(1:length(ymf), abs(ymf));
+
+
+
+figure;
+ambgfun(y_mf_mm(:,26),fs,PRF);
 
